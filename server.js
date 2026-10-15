@@ -104,59 +104,79 @@ app.post('/api/chat', async (req, res) => {
       };
     }
 
-    const targetModel = String(model).trim() || 'gemini-2.5-flash';
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(targetModel)}:generateContent?key=${apiKey}`;
+    const targetModel = String(model).trim() || 'gemini-3.5-flash';
+
+    // Fallback models pool if requested model is deprecated (404), overloaded (503), or rate-limited (429)
+    const fallbackCandidates = [
+      targetModel,
+      'gemini-3.5-flash',
+      'gemini-3.6-flash',
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite'
+    ];
+
+    const triedModels = new Set();
+    let geminiRes = null;
+    let actualModel = targetModel;
+    let lastErrorJson = null;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 90000);
 
     try {
-      let geminiRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(geminiPayload),
-        signal: controller.signal
-      });
+      for (const m of fallbackCandidates) {
+        if (triedModels.has(m)) continue;
+        triedModels.add(m);
 
-      // Auto-fallback if requested model is superseded or unavailable in the user's project
-      if (!geminiRes.ok && (geminiRes.status === 404 || geminiRes.status === 400) && targetModel !== 'gemini-3.8-flash') {
-        const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent?key=${apiKey}`;
         try {
-          const fallbackRes = await fetch(fallbackUrl, {
+          const res = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(geminiPayload),
             signal: controller.signal
           });
-          geminiRes = fallbackRes;
-          targetModel = 'gemini-3.8-flash';
-        } catch (_) {}
+
+          if (res.ok) {
+            geminiRes = res;
+            actualModel = m;
+            break;
+          }
+
+          const errData = await res.json().catch(() => ({}));
+          lastErrorJson = errData;
+          geminiRes = res;
+          actualModel = m;
+
+          // If unauthorized or forbidden (bad API key), abort cascade early
+          if (res.status === 401 || res.status === 403) {
+            break;
+          }
+        } catch (fetchErr) {
+          if (fetchErr.name === 'AbortError') throw fetchErr;
+          console.warn(`[Proxy] Model ${m} fetch error:`, fetchErr.message);
+        }
       }
 
       clearTimeout(timeoutId);
 
-      if (!geminiRes.ok) {
-        let errMsg = `Ошибка Gemini API (${geminiRes.status})`;
-        try {
-          const errData = await geminiRes.json();
-          if (errData?.error?.message) {
-            errMsg = errData.error.message;
-          }
-        } catch (_) {}
+      if (!geminiRes || !geminiRes.ok) {
+        const status = geminiRes ? geminiRes.status : 500;
+        let errMsg = lastErrorJson?.error?.message || `Ошибка Gemini API (${status})`;
 
-        if (geminiRes.status === 429) {
+        if (status === 429) {
           errMsg = 'Превышен лимит запросов Google API (429 Rate Limit / Quota Exceeded). Подождите несколько секунд и повторите.';
-        } else if (geminiRes.status === 503) {
-          errMsg = 'Google API временно перегружен (503 Service Unavailable / High Demand). Нажмите «Повторить попытку» через пару секунд.';
-        } else if (geminiRes.status === 404) {
+        } else if (status === 503) {
+          errMsg = 'Все доступные модели Google API временно перегружены (503 High Demand). Пожалуйста, повторите запрос через пару секунд.';
+        } else if (status === 404) {
           errMsg = `Модель "${targetModel}" не найдена в Google API. Проверьте правильность ID модели.`;
-        } else if (geminiRes.status === 400) {
+        } else if (status === 400) {
           errMsg = `Некорректный запрос к модели (${targetModel}): ${errMsg}`;
-        } else if (geminiRes.status === 403) {
+        } else if (status === 403) {
           errMsg = `Ошибка доступа API ключа Google: ${errMsg}`;
         }
 
-        return res.status(geminiRes.status).json({ error: errMsg });
+        return res.status(status).json({ error: errMsg });
       }
 
       const data = await geminiRes.json();
@@ -184,7 +204,7 @@ app.post('/api/chat', async (req, res) => {
         reply: replyText,
         usage: data.usageMetadata || null,
         finishReason: candidate?.finishReason || 'STOP',
-        model: targetModel
+        model: actualModel !== targetModel ? (actualModel + ' (авто-fallback с ' + targetModel + ')') : actualModel
       });
 
     } catch (fetchErr) {
@@ -1219,10 +1239,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
       <!-- Model Select -->
       <div class="select-wrapper">
         <select id="modelSelect" class="model-select" title="Выберите модель Gemini">
-          <option value="gemini-2.5-flash">gemini-2.5-flash (Быстрый)</option>
-          <option value="gemini-2.5-pro">gemini-2.5-pro (Флагман)</option>
-          <option value="gemini-2.0-flash">gemini-2.0-flash (Скорость)</option>
-          <option value="gemini-3.8-flash">gemini-3.8-flash (Новейший)</option>
+          <option value="gemini-3.5-flash">gemini-3.5-flash (⚡ Стабильный, рекомендуемый)</option>
+          <option value="gemini-3.7-flash">gemini-3.7-flash (🚀 Продвинутый)</option>
+          <option value="gemini-3.8-flash">gemini-3.8-flash (🧠 Новейший Flash)</option>
+          <option value="gemini-3.6-flash">gemini-3.6-flash (Быстрый)</option>
+          <option value="gemini-2.5-flash">gemini-2.5-flash (2.5 Flash)</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro (2.5 Pro)</option>
+          <option value="gemini-2.0-flash">gemini-2.0-flash (2.0 Flash)</option>
           <option value="__custom__">Свой ID модели...</option>
         </select>
       </div>
@@ -1397,8 +1420,12 @@ const HTML_CONTENT = `<!DOCTYPE html>
       var savedPin = localStorage.getItem(STORAGE_KEY_PIN) || '1234';
       pinInput.value = savedPin;
 
-      // Restore Model
-      var savedModel = localStorage.getItem(STORAGE_KEY_MODEL) || 'gemini-2.5-flash';
+      // Restore Model (default to gemini-3.5-flash for rock-solid stability)
+      var savedModel = localStorage.getItem(STORAGE_KEY_MODEL);
+      if (!savedModel || savedModel === 'gemini-2.5-flash' || savedModel === 'gemini-2.0-flash') {
+        savedModel = 'gemini-3.5-flash';
+        localStorage.setItem(STORAGE_KEY_MODEL, savedModel);
+      }
       var presetOption = Array.from(modelSelect.options).find(function(opt) { return opt.value === savedModel; });
       if (presetOption) {
         modelSelect.value = savedModel;
