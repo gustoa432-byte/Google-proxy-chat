@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Gemini Proxy Chat</title>
+  <meta name="description" content="Ultra-lightweight personal web-proxy chat application for Google Gemini API, optimized for Render.com free tier">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+  
+  <!-- Highlight.js for Code Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  
+  <!-- Marked.js for Markdown parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+
+  <!-- Application Styles -->
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- Topbar Header -->
+  <header class="app-header">
+    <div class="brand-section">
+      <a href="/" class="brand-logo" title="Gemini Proxy Chat v2.1">
+        <span class="brand-icon">⚡</span>
+        <span>Gemini Proxy</span>
+      </a>
+      <span class="brand-badge">v2.1</span>
+      <button id="authStatusBtn" class="auth-badge no-key" title="Управление API-ключом и PIN" aria-label="Статус авторизации">
+        <span class="status-dot"></span>
+        <span id="authStatusText">Проверка...</span>
+      </button>
+    </div>
+
+    <div class="header-controls">
+      <!-- Model Selector -->
+      <div class="select-wrapper">
+        <select id="modelSelect" class="model-select" aria-label="Выбор модели Gemini">
+          <option value="gemini-3.5-flash" selected>gemini-3.5-flash (Быстрая)</option>
+          <option value="gemini-3.6-flash">gemini-3.6-flash</option>
+          <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+          <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro (Точная)</option>
+          <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+          <option value="__custom__">Кастомная модель...</option>
+        </select>
+      </div>
+
+      <!-- Temperature Controller -->
+      <div class="temp-control" title="Температура генерации (0.0 - точный, 2.0 - креативный)">
+        <span>Т:</span>
+        <input type="range" id="tempRange" min="0" max="2" step="0.1" value="0.7" aria-label="Температура генерации">
+        <span id="tempVal" class="temp-val">0.7</span>
+      </div>
+
+      <!-- Max Tokens Selector (P2) -->
+      <div class="select-wrapper">
+        <select id="maxTokensSelect" class="model-select" aria-label="Максимум токенов" title="Лимит токенов ответа">
+          <option value="auto">Токены: авто</option>
+          <option value="2048">2048 токенов</option>
+          <option value="4096">4096 токенов</option>
+          <option value="8192">8192 токенов</option>
+        </select>
+      </div>
+
+      <!-- Message Count Badge -->
+      <span id="msgCountBadge" class="counter-badge" title="Количество сообщений в истории">0 сообщ.</span>
+
+      <!-- Action Buttons -->
+      <button id="trimHistoryBtn" class="icon-btn" title="Обрезать историю для экономии токенов" aria-label="Обрезать историю">
+        ✂️ <span style="font-size:11px">Обрезать</span>
+      </button>
+
+      <button id="systemPromptBtn" class="icon-btn" title="Системный промпт (Инструкция для модели)" aria-label="Системный промпт">
+        🧠
+      </button>
+
+      <button id="exportBtn" class="icon-btn" title="Экспорт диалога в Markdown (.md)" aria-label="Экспорт диалога">
+        📥
+      </button>
+
+      <button id="clearChatBtn" class="icon-btn" title="Очистить всю переписку" aria-label="Очистить диалог">
+        🗑️
+      </button>
+
+      <button id="themeToggleBtn" class="icon-btn" title="Сменить тему оформления" aria-label="Сменить тему">
+        ☀️
+      </button>
+
+      <button id="settingsBtn" class="icon-btn" title="Настройки доступа (API-ключ и PIN)" aria-label="Настройки">
+        ⚙️
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Chat Flow -->
+  <main class="chat-container" id="chatContainer">
+    <div class="chat-inner" id="chatInner">
+      
+      <!-- History Length Warning Banner (Shown when history > 40 messages) -->
+      <div id="historyWarningBanner" class="history-warning-banner" style="display:none;">
+        <span>⚠️ В истории более 40 сообщений. Для экономии контекста и скорости ответа рекомендуется обрезать старые реплики.</span>
+        <button id="quickTrimBtn">Обрезать до 20</button>
+      </div>
+
+      <!-- Welcome Hero (Shown if no messages) -->
+      <div id="welcomeHero" class="welcome-hero">
+        <div style="font-size: 36px; margin-bottom: 8px;">⚡</div>
+        <h1 class="welcome-title">Gemini Proxy Chat</h1>
+        <p class="welcome-desc">
+          Ультралёгкий шлюз для Google Gemini API с поддержкой стриминга в реальном времени,
+          собственного ключа (BYOK), файлов и автоматического переключения моделей.
+        </p>
+
+        <div class="welcome-cards">
+          <div class="welcome-card">
+            <div class="welcome-card-title">🔑 Свой ключ (BYOK)</div>
+            <div class="welcome-card-text">
+              Укажите ваш собственный Gemini API Key. Ключ хранится локально в браузере и не передаётся посторонним.
+            </div>
+          </div>
+          <div class="welcome-card">
+            <div class="welcome-card-title">🌊 Плавный Стриминг</div>
+            <div class="welcome-card-text">
+              Ответ поступает посимвольно в режиме реального времени. Вы можете прервать генерацию в любой момент.
+            </div>
+          </div>
+          <div class="welcome-card">
+            <div class="welcome-card-title">📎 Файлы и Документы</div>
+            <div class="welcome-card-text">
+              Прикрепляйте скриншоты, фотографии, исходный код и текстовые файлы для мгновенного анализа.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Message Stream -->
+      <div id="messageList" style="display: flex; flex-direction: column; gap: 16px;"></div>
+
+    </div>
+  </main>
+
+  <!-- Chat Input Footer -->
+  <footer class="chat-input-wrapper">
+    <div class="input-container">
+      
+      <!-- Attachment Previews -->
+      <div id="attachmentBar" class="attachment-preview-bar" style="display: none;"></div>
+
+      <!-- Input Row -->
+      <div class="input-box">
+        <button id="attachBtn" class="attach-btn" title="Прикрепить изображение или файл" aria-label="Прикрепить файл">
+          📎
+        </button>
+        <input type="file" id="fileInput" multiple accept="image/*,.txt,.md,.js,.ts,.py,.json,.csv,.html,.css" style="display: none;">
+
+        <textarea
+          id="userInput"
+          class="input-textarea"
+          rows="1"
+          placeholder="Напишите сообщение..."
+          aria-label="Текст запроса"
+        ></textarea>
+
+        <button id="sendBtn" class="send-btn" aria-label="Отправить сообщение">
+          <span id="sendBtnIcon">✈️</span>
+          <span id="sendBtnText">Отправить</span>
+        </button>
+      </div>
+
+      <div class="input-hint-row">
+        <span>Google Gemini 3.5 / 3.6 / 3.8 Flash & 2.5 Pro · Работает без VPN</span>
+        <span id="streamingIndicatorText">Стриминг активен (SSE)</span>
+      </div>
+
+      <div class="footer-credits">
+        <span>Разработчик: <a href="https://t.me/b6dmachine" target="_blank" rel="noopener noreferrer">@b6dmachine</a></span>
+        <span class="credits-dot">·</span>
+        <span>Репозиторий: <a href="https://github.com/gustoa432-byte/Google-proxy-chat" target="_blank" rel="noopener noreferrer">gustoa432-byte/Google-proxy-chat</a></span>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- ======================================================================
+       Modals
+       ====================================================================== -->
+
+  <!-- Access / Auth Modal -->
+  <div id="authModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="authModalTitle" class="modal-title">⚙️ Настройки доступа и API</h2>
+        <button class="modal-close-btn" data-close="authModal" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- BYOK Section -->
+        <div class="form-group">
+          <label class="form-label" for="userApiKeyInput">
+            <span>🔑 Ваш Google Gemini API Key (BYOK)</span>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color: var(--accent-blue); font-size: 11px; text-decoration: none;">
+              Получить ключ в Google AI Studio ↗
+            </a>
+          </label>
+          <div class="input-with-action">
+            <input type="password" id="userApiKeyInput" class="text-input" placeholder="AIzaSy..." autocomplete="off">
+            <button type="button" id="toggleApiKeyVisBtn" class="btn-secondary" title="Показать/скрыть ключ">👁️</button>
+          </div>
+          <p class="form-help">
+            Ключ сохраняется исключительно в вашем браузере (localStorage) и отправляется на прокси только по защищенному протоколу. Ключи пользователей никогда не логируются.
+          </p>
+          <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <button type="button" id="saveApiKeyBtn" class="btn-primary" style="font-size: 12px; padding: 5px 10px;">Сохранить ключ</button>
+            <button type="button" id="deleteApiKeyBtn" class="btn-danger" style="font-size: 12px; padding: 5px 10px;">Удалить ключ</button>
+          </div>
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--border-color);">
+
+        <!-- Owner PIN Section -->
+        <div class="form-group">
+          <label class="form-label" for="ownerPinInput">
+            <span>🛡️ Режим владельца (Административный PIN)</span>
+          </label>
+          <div class="input-with-action">
+            <input type="password" id="ownerPinInput" class="text-input" placeholder="Введите PIN, если вы владелец сервера" autocomplete="off">
+            <button type="button" id="togglePinVisBtn" class="btn-secondary" title="Показать/скрыть PIN">👁️</button>
+          </div>
+          <p class="form-help">
+            Обычным пользователям PIN не нужен. Если вы развернули сервер на Render и задали <code>ACCESS_PIN</code>, ввод этого пароля предоставит доступ к серверному ключу владельца.
+          </p>
+          <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <button type="button" id="savePinBtn" class="btn-secondary" style="font-size: 12px; padding: 5px 10px;">Сохранить PIN</button>
+            <button type="button" id="deletePinBtn" class="btn-secondary" style="font-size: 12px; padding: 5px 10px;">Сбросить PIN</button>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" data-close="authModal">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- System Prompt Modal -->
+  <div id="systemPromptModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="sysModalTitle">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="sysModalTitle" class="modal-title">🧠 Системная инструкция (System Prompt)</h2>
+        <button class="modal-close-btn" data-close="systemPromptModal" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="form-help">
+          Инструкция задает поведение модели для всех последующих сообщений в диалоге.
+        </p>
+
+        <div class="preset-chips">
+          <button type="button" class="preset-chip" data-preset="Ты полезный, профессиональный и вежливый AI-ассистент. Отвечай структурированно, понятно и на русском языке.">Универсальный</button>
+          <button type="button" class="preset-chip" data-preset="Ты Senior Fullstack Software Engineer. Пиши чистый, типобезопасный, production-ready код с пояснениями. Избегай плейсхолдеров.">Senior Developer</button>
+          <button type="button" class="preset-chip" data-preset="Ты профессиональный редактор и копирайтер. Исправляй стиль, делай текст выразительным, грамотным и лаконичным.">Редактор</button>
+          <button type="button" class="preset-chip" data-preset="Отвечай предельно кратко, без вводных фраз и вежливостей. Только суть и факты.">Краткий</button>
+        </div>
+
+        <textarea id="systemPromptInput" class="text-input" rows="5" placeholder="Например: Ты опытный программист Python..." style="resize: vertical;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="clearSysPromptBtn" class="btn-secondary">Очистить</button>
+        <button type="button" id="saveSysPromptBtn" class="btn-primary">Применить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trim History Modal -->
+  <div id="trimModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="trimModalTitle">
+    <div class="modal-box" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 id="trimModalTitle" class="modal-title">✂️ Обрезать историю</h2>
+        <button class="modal-close-btn" data-close="trimModal" aria-label="Закрыть">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="form-help">
+          Обрезание удалит старые сообщения из контекста, освободит память и ускорит запросы к модели.
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button type="button" class="btn-secondary" id="trimTo10Btn">Оставить последние 10 сообщений</button>
+          <button type="button" class="btn-primary" id="trimTo20Btn">Оставить последние 20 сообщений (Рекомендуется)</button>
+          <button type="button" class="btn-secondary" id="trimTo30Btn">Оставить последние 30 сообщений</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" data-close="trimModal">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script src="/app.js"></script>
+</body>
+</html>
