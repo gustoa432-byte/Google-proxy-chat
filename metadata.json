@@ -1,0 +1,6 @@
+{
+  "name": "Gemini Proxy Chat",
+  "description": "Ultra-lightweight personal web-proxy chat application for Google Gemini API, optimized for Render.com free tier",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

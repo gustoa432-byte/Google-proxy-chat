@@ -1,0 +1,21 @@
+{
+  "name": "gemini-proxy-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ultra-lightweight personal web-proxy chat application for Google Gemini API, optimized for Render.com free tier",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "node -c server.js",
+    "lint": "node -c server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
